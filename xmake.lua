@@ -1,5 +1,6 @@
 add_rules("mode.debug", "mode.release")
 set_encodings("utf-8")
+add_requires("openmp")
 
 add_includedirs("include")
 
@@ -83,6 +84,7 @@ target_end()
 target("llaisys-ops")
     set_kind("static")
     add_deps("llaisys-ops-cpu")
+    add_packages("openmp", {public = true})
 
     set_languages("cxx17")
     set_warnings("all", "error")
@@ -97,6 +99,7 @@ target_end()
 
 target("llaisys")
     set_kind("shared")
+    add_packages("openmp")
     add_deps("llaisys-utils")
     add_deps("llaisys-device")
     add_deps("llaisys-core")
