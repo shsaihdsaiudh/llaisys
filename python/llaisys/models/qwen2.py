@@ -1,4 +1,4 @@
-from ctypes import c_int, c_void_p
+from ctypes import c_int, c_int64, c_void_p
 import json
 import re
 from typing import Sequence
@@ -69,7 +69,7 @@ class Qwen2:
         loaded = set()
 
         for file in sorted(model_path.glob("*.safetensors")):
-            data_ = safetensors.safe_open(file, framework="numpy", device="cpu")
+            data_ = safetensors.safe_open(file, framework="pt", device="cpu")
             for name_ in data_.keys():
                 target = fixed_fields.get(name_)
                 if target is None:
@@ -82,7 +82,7 @@ class Qwen2:
                     target = getattr(weights, layer_fields[match.group(2)])[layer]
 
                 value = data_.get_tensor(name_)
-                LIB_LLAISYS.tensorLoad(target, c_void_p(value.ctypes.data))
+                LIB_LLAISYS.tensorLoad(target, c_void_p(value.data_ptr()))
                 loaded.add(name_)
 
         expected_weights = 3 + 12 * self._meta.nlayer
@@ -104,5 +104,29 @@ class Qwen2:
         top_p: float = 0.8,
         temperature: float = 0.8,
     ):
+        if not inputs:
+            raise ValueError("Qwen2 generation requires at least one input token")
+        if top_k != 1:
+            raise ValueError("Qwen2 currently supports greedy decoding only (top_k=1)")
+        del top_p, temperature
 
-        raise NotImplementedError("Qwen2 generation is not implemented yet")
+        max_new_tokens = 128 if max_new_tokens is None else max_new_tokens
+        if max_new_tokens < 0:
+            raise ValueError("max_new_tokens must be non-negative")
+
+        output = list(inputs)
+        pending = list(inputs)
+        LIB_LLAISYS.llaisysQwen2ModelReset(self._model)
+        for _ in range(max_new_tokens):
+            token_buffer = (c_int64 * len(pending))(*pending)
+            next_token = int(
+                LIB_LLAISYS.llaisysQwen2ModelInfer(
+                    self._model, token_buffer, len(pending)
+                )
+            )
+            output.append(next_token)
+            if next_token == self._meta.end_token:
+                break
+            pending = [next_token]
+
+        return output
