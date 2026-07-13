@@ -1,7 +1,45 @@
 #include "op.hpp"
 
+#include "../../utils.hpp"
+
+#include <cmath>
+
+namespace {
+template <typename T>
+void swiglu_cpu(T *out, const T *gate, const T *up, size_t count) {
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < count; ++i) {
+        const float gate_value = llaisys::utils::cast<float>(gate[i]);
+        const float up_value = llaisys::utils::cast<float>(up[i]);
+        const float silu = gate_value / (1.0F + std::exp(-gate_value));
+        out[i] = llaisys::utils::cast<T>(up_value * silu);
+    }
+}
+} // namespace
+
 namespace llaisys::ops {
 void swiglu(tensor_t out, tensor_t gate, tensor_t up) {
-    TO_BE_IMPLEMENTED();
+    CHECK_SAME_DEVICE(out, gate, up);
+    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "SwiGLU currently supports CPU tensors only");
+    CHECK_SAME_DTYPE(out->dtype(), gate->dtype(), up->dtype());
+    CHECK_SAME_SHAPE(out->shape(), gate->shape(), up->shape());
+    CHECK_ARGUMENT(out->ndim() == 2, "SwiGLU expects 2D tensors");
+    CHECK_ARGUMENT(out->isContiguous() && gate->isContiguous() && up->isContiguous(),
+                   "SwiGLU tensors must be contiguous");
+
+#define SWIGLU_CPU_CASE(DTYPE, TYPE)                                    \
+    case DTYPE:                                                         \
+        return swiglu_cpu(reinterpret_cast<TYPE *>(out->data()),        \
+                          reinterpret_cast<const TYPE *>(gate->data()), \
+                          reinterpret_cast<const TYPE *>(up->data()), out->numel())
+
+    switch (out->dtype()) {
+        SWIGLU_CPU_CASE(LLAISYS_DTYPE_F32, float);
+        SWIGLU_CPU_CASE(LLAISYS_DTYPE_F16, fp16_t);
+        SWIGLU_CPU_CASE(LLAISYS_DTYPE_BF16, bf16_t);
+    default:
+        EXCEPTION_UNSUPPORTED_DATATYPE(out->dtype());
+    }
+#undef SWIGLU_CPU_CASE
 }
 } // namespace llaisys::ops
