@@ -1,6 +1,10 @@
 #include "op.hpp"
 
 #include "../../utils.hpp"
+#include "../../core/llaisys_core.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "nvidia/rms_norm_nvidia.hpp"
+#endif
 
 #include <cmath>
 
@@ -27,7 +31,6 @@ void rms_norm_cpu(T *out, const T *in, const T *weight, size_t rows, size_t widt
 namespace llaisys::ops {
 void rms_norm(tensor_t out, tensor_t in, tensor_t weight, float eps) {
     CHECK_SAME_DEVICE(out, in, weight);
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "RMS norm currently supports CPU tensors only");
     CHECK_SAME_DTYPE(out->dtype(), in->dtype(), weight->dtype());
     CHECK_ARGUMENT(out->ndim() == 2 && in->ndim() == 2 && weight->ndim() == 1,
                    "RMS norm expects 2D input/output and 1D weight");
@@ -37,6 +40,15 @@ void rms_norm(tensor_t out, tensor_t in, tensor_t weight, float eps) {
     CHECK_ARGUMENT(eps >= 0.0F, "RMS norm epsilon must be non-negative");
     CHECK_ARGUMENT(out->isContiguous() && in->isContiguous() && weight->isContiguous(),
                    "RMS norm tensors must be contiguous");
+
+#ifdef ENABLE_NVIDIA_API
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+        return nvidia::rmsNorm(out->data(), in->data(), weight->data(), out->dtype(),
+                               in->shape()[0], in->shape()[1], eps);
+    }
+#endif
+    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported RMS norm device");
 
 #define RMS_NORM_CPU_CASE(DTYPE, TYPE)                                                      \
     case DTYPE:                                                                             \

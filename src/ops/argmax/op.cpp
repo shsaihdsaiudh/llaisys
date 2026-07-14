@@ -1,6 +1,10 @@
 #include "op.hpp"
 
 #include "../../utils.hpp"
+#include "../../core/llaisys_core.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "nvidia/argmax_nvidia.hpp"
+#endif
 
 namespace {
 template <typename T>
@@ -22,7 +26,6 @@ void argmax_cpu(int64_t *max_idx, T *max_val, const T *vals, size_t count) {
 namespace llaisys::ops {
 void argmax(tensor_t max_idx, tensor_t max_val, tensor_t vals) {
     CHECK_SAME_DEVICE(max_idx, max_val, vals);
-    CHECK_ARGUMENT(vals->deviceType() == LLAISYS_DEVICE_CPU, "Argmax currently supports CPU tensors only");
     CHECK_ARGUMENT(vals->ndim() == 1 && vals->numel() > 0, "Argmax input must be a non-empty 1D tensor");
     CHECK_ARGUMENT(max_idx->ndim() == 1 && max_idx->numel() == 1, "Argmax index output must contain one element");
     CHECK_ARGUMENT(max_val->ndim() == 1 && max_val->numel() == 1, "Argmax value output must contain one element");
@@ -32,6 +35,13 @@ void argmax(tensor_t max_idx, tensor_t max_val, tensor_t vals) {
                    "Argmax tensors must be contiguous");
 
     auto *idx = reinterpret_cast<int64_t *>(max_idx->data());
+#ifdef ENABLE_NVIDIA_API
+    if (vals->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        llaisys::core::context().setDevice(vals->deviceType(), vals->deviceId());
+        return nvidia::argmax(idx, max_val->data(), vals->data(), vals->dtype(), vals->numel());
+    }
+#endif
+    CHECK_ARGUMENT(vals->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported argmax device");
     switch (vals->dtype()) {
     case LLAISYS_DTYPE_F32:
         return argmax_cpu(idx, reinterpret_cast<float *>(max_val->data()),

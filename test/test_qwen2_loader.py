@@ -82,7 +82,7 @@ def reference_next_token(token_ids, weights, config):
     return int(logits.argmax(dim=-1).item())
 
 
-def test_qwen2_loader():
+def test_qwen2_loader(device=llaisys.DeviceType.CPU):
     config = {
         "torch_dtype": "float32",
         "num_hidden_layers": 1,
@@ -118,13 +118,13 @@ def test_qwen2_loader():
         model_path = Path(directory)
         (model_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
         save_file(weights, model_path / "model.safetensors")
-        model = llaisys.models.Qwen2(model_path)
+        model = llaisys.models.Qwen2(model_path, device)
         assert model.generate([1, 2], max_new_tokens=2, top_k=1) == [1, 2, 0, 0]
         del model
         gc.collect()
 
 
-def test_qwen2_reference_generation():
+def test_qwen2_reference_generation(device=llaisys.DeviceType.CPU):
     config = {
         "torch_dtype": "float32",
         "num_hidden_layers": 1,
@@ -169,13 +169,23 @@ def test_qwen2_reference_generation():
         model_path = Path(directory)
         (model_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
         save_file(weights, model_path / "model.safetensors")
-        model = llaisys.models.Qwen2(model_path)
+        model = llaisys.models.Qwen2(model_path, device)
         assert model.generate([1, 2], max_new_tokens=2, top_k=1) == expected
         del model
         gc.collect()
 
 
 if __name__ == "__main__":
-    test_qwen2_loader()
-    test_qwen2_reference_generation()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"])
+    args = parser.parse_args()
+    device = (
+        llaisys.DeviceType.NVIDIA
+        if args.device == "nvidia"
+        else llaisys.DeviceType.CPU
+    )
+    test_qwen2_loader(device)
+    test_qwen2_reference_generation(device)
     print("\n\033[92mTest passed!\033[0m\n")

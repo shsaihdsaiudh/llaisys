@@ -27,6 +27,7 @@ struct LlaisysQwen2Model {
     std::vector<llaisys::tensor_t> key_cache;
     std::vector<llaisys::tensor_t> value_cache;
     size_t cache_length = 0;
+    size_t cache_capacity = 0;
 };
 
 namespace {
@@ -66,7 +67,12 @@ __C {
                                                int *device_ids,
                                                int ndevice) {
         CHECK_ARGUMENT(meta != nullptr, "Qwen2 metadata must not be null");
-        CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU, "Qwen2 currently supports CPU inference only");
+#ifdef ENABLE_NVIDIA_API
+        CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU || device == LLAISYS_DEVICE_NVIDIA,
+                       "Qwen2 supports CPU and NVIDIA devices only");
+#else
+        CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU, "Qwen2 was built without NVIDIA support");
+#endif
         CHECK_ARGUMENT(ndevice == 1 && device_ids != nullptr, "Qwen2 requires exactly one device");
         CHECK_ARGUMENT(meta->nlayer > 0 && meta->hs > 0 && meta->nh > 0 && meta->nkvh > 0,
                        "Qwen2 dimensions must be positive");
@@ -110,15 +116,6 @@ __C {
             weights.mlp_down_w[layer] = make_tensor({meta->hs, meta->di}, meta->dtype, device, model->device_id);
         }
 
-        model->key_cache.reserve(meta->nlayer);
-        model->value_cache.reserve(meta->nlayer);
-        for (size_t layer = 0; layer < meta->nlayer; ++layer) {
-            model->key_cache.push_back(llaisys::Tensor::create(
-                {meta->maxseq, meta->nkvh, meta->dh}, meta->dtype, device, model->device_id));
-            model->value_cache.push_back(llaisys::Tensor::create(
-                {meta->maxseq, meta->nkvh, meta->dh}, meta->dtype, device, model->device_id));
-        }
-
         return model;
     }
 
@@ -155,11 +152,37 @@ __C {
         model->cache_length = 0;
     }
 
+    void llaisysQwen2ModelReserveCache(LlaisysQwen2Model * model, size_t capacity) {
+        CHECK_ARGUMENT(model != nullptr, "Qwen2 model must not be null");
+        CHECK_ARGUMENT(capacity > 0 && capacity <= model->meta.maxseq,
+                       "Qwen2 cache capacity is outside the configured sequence range");
+        if (capacity <= model->cache_capacity) {
+            return;
+        }
+        CHECK_ARGUMENT(model->cache_length == 0, "Qwen2 cache can only grow after reset");
+
+        model->key_cache.clear();
+        model->value_cache.clear();
+        model->key_cache.reserve(model->meta.nlayer);
+        model->value_cache.reserve(model->meta.nlayer);
+        for (size_t layer = 0; layer < model->meta.nlayer; ++layer) {
+            model->key_cache.push_back(llaisys::Tensor::create(
+                {capacity, model->meta.nkvh, model->meta.dh}, model->meta.dtype,
+                model->device, model->device_id));
+            model->value_cache.push_back(llaisys::Tensor::create(
+                {capacity, model->meta.nkvh, model->meta.dh}, model->meta.dtype,
+                model->device, model->device_id));
+        }
+        model->cache_capacity = capacity;
+    }
+
     int64_t llaisysQwen2ModelInfer(LlaisysQwen2Model * model, int64_t * token_ids, size_t ntoken) {
         CHECK_ARGUMENT(model != nullptr, "Qwen2 model must not be null");
         CHECK_ARGUMENT(token_ids != nullptr && ntoken > 0, "Qwen2 inference requires at least one token");
-        CHECK_ARGUMENT(model->cache_length + ntoken <= model->meta.maxseq,
-                       "Qwen2 sequence exceeds the configured maximum length");
+        CHECK_ARGUMENT(model->cache_capacity > 0 && model->key_cache.size() == model->meta.nlayer,
+                       "Qwen2 cache must be reserved before inference");
+        CHECK_ARGUMENT(model->cache_length + ntoken <= model->cache_capacity,
+                       "Qwen2 sequence exceeds the reserved cache capacity");
         for (size_t i = 0; i < ntoken; ++i) {
             CHECK_ARGUMENT(token_ids[i] >= 0 && static_cast<size_t>(token_ids[i]) < model->meta.voc,
                            "Qwen2 token ID is out of range");
@@ -202,8 +225,15 @@ __C {
             llaisys::ops::rope(key, key, positions, meta.theta);
 
             const size_t cache_offset = model->cache_length * kv_width * element_size;
-            std::memcpy(model->key_cache[layer]->data() + cache_offset, key->data(), cache_copy_bytes);
-            std::memcpy(model->value_cache[layer]->data() + cache_offset, value->data(), cache_copy_bytes);
+            llaisys::core::context().setDevice(model->device, model->device_id);
+            auto *runtime_api = llaisys::core::context().runtime().api();
+            const auto copy_kind = model->device == LLAISYS_DEVICE_CPU
+                                     ? LLAISYS_MEMCPY_H2H
+                                     : LLAISYS_MEMCPY_D2D;
+            runtime_api->memcpy_sync(model->key_cache[layer]->data() + cache_offset,
+                                     key->data(), cache_copy_bytes, copy_kind);
+            runtime_api->memcpy_sync(model->value_cache[layer]->data() + cache_offset,
+                                     value->data(), cache_copy_bytes, copy_kind);
             auto cached_keys = model->key_cache[layer]->slice(0, 0, total_length);
             auto cached_values = model->value_cache[layer]->slice(0, 0, total_length);
 
@@ -237,6 +267,14 @@ __C {
         auto max_index = llaisys::Tensor::create({1}, LLAISYS_DTYPE_I64, model->device, model->device_id);
         auto max_value = llaisys::Tensor::create({1}, meta.dtype, model->device, model->device_id);
         llaisys::ops::argmax(max_index, max_value, logits->view({meta.voc}));
-        return *reinterpret_cast<const int64_t *>(max_index->data());
+        int64_t result = 0;
+        if (model->device == LLAISYS_DEVICE_CPU) {
+            result = *reinterpret_cast<const int64_t *>(max_index->data());
+        } else {
+            llaisys::core::context().setDevice(model->device, model->device_id);
+            llaisys::core::context().runtime().api()->memcpy_sync(
+                &result, max_index->data(), sizeof(result), LLAISYS_MEMCPY_D2H);
+        }
+        return result;
     }
 }

@@ -1,11 +1,15 @@
 #include "op.hpp"
 
+#include "../../core/llaisys_core.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "nvidia/embedding_nvidia.hpp"
+#endif
+
 #include <cstring>
 
 namespace llaisys::ops {
 void embedding(tensor_t out, tensor_t index, tensor_t weight) {
     CHECK_SAME_DEVICE(out, index, weight);
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Embedding currently supports CPU tensors only");
     CHECK_ARGUMENT(index->dtype() == LLAISYS_DTYPE_I64, "Embedding indices must use int64");
     CHECK_SAME_DTYPE(out->dtype(), weight->dtype());
     CHECK_ARGUMENT(index->ndim() == 1, "Embedding indices must be 1D");
@@ -17,6 +21,14 @@ void embedding(tensor_t out, tensor_t index, tensor_t weight) {
                    "Embedding tensors must be contiguous");
 
     const auto *indices = reinterpret_cast<const int64_t *>(index->data());
+#ifdef ENABLE_NVIDIA_API
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+        return nvidia::embedding(out->data(), indices, weight->data(), out->dtype(),
+                                 index->numel(), weight->shape()[1]);
+    }
+#endif
+    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported embedding device");
     const size_t row_bytes = weight->shape()[1] * weight->elementSize();
     for (size_t i = 0; i < index->numel(); ++i) {
         CHECK_ARGUMENT(indices[i] >= 0 && static_cast<size_t>(indices[i]) < weight->shape()[0],

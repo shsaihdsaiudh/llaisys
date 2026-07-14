@@ -1,6 +1,10 @@
 #include "op.hpp"
 
 #include "../../utils.hpp"
+#include "../../core/llaisys_core.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "nvidia/linear_nvidia.hpp"
+#endif
 
 namespace {
 template <typename T>
@@ -31,7 +35,6 @@ void linear(tensor_t out, tensor_t in, tensor_t weight, tensor_t bias) {
     if (bias != nullptr) {
         CHECK_SAME_DEVICE(out, bias);
     }
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Linear currently supports CPU tensors only");
     CHECK_SAME_DTYPE(out->dtype(), in->dtype(), weight->dtype());
     if (bias != nullptr) {
         CHECK_SAME_DTYPE(out->dtype(), bias->dtype());
@@ -52,6 +55,16 @@ void linear(tensor_t out, tensor_t in, tensor_t weight, tensor_t bias) {
     const size_t rows = in->shape()[0];
     const size_t in_features = in->shape()[1];
     const size_t out_features = weight->shape()[0];
+
+#ifdef ENABLE_NVIDIA_API
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+        return nvidia::linear(out->data(), in->data(), weight->data(),
+                              bias == nullptr ? nullptr : bias->data(), out->dtype(),
+                              rows, in_features, out_features);
+    }
+#endif
+    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported linear device");
 
 #define LINEAR_CPU_CASE(DTYPE, TYPE)                                                                         \
     case DTYPE:                                                                                              \

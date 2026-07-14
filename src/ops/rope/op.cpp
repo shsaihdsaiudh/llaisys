@@ -1,6 +1,10 @@
 #include "op.hpp"
 
 #include "../../utils.hpp"
+#include "../../core/llaisys_core.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "nvidia/rope_nvidia.hpp"
+#endif
 
 #include <cmath>
 #include <vector>
@@ -41,7 +45,6 @@ void rope_cpu(T *out,
 namespace llaisys::ops {
 void rope(tensor_t out, tensor_t in, tensor_t pos_ids, float theta) {
     CHECK_SAME_DEVICE(out, in, pos_ids);
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "RoPE currently supports CPU tensors only");
     CHECK_SAME_DTYPE(out->dtype(), in->dtype());
     CHECK_SAME_SHAPE(out->shape(), in->shape());
     CHECK_ARGUMENT(out->ndim() == 3, "RoPE input and output must be 3D");
@@ -53,6 +56,16 @@ void rope(tensor_t out, tensor_t in, tensor_t pos_ids, float theta) {
     CHECK_ARGUMENT(theta > 0.0F, "RoPE theta must be positive");
     CHECK_ARGUMENT(out->isContiguous() && in->isContiguous() && pos_ids->isContiguous(),
                    "RoPE tensors must be contiguous");
+
+#ifdef ENABLE_NVIDIA_API
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+        return nvidia::rope(out->data(), in->data(),
+                            reinterpret_cast<const int64_t *>(pos_ids->data()), out->dtype(),
+                            in->shape()[0], in->shape()[1], in->shape()[2], theta);
+    }
+#endif
+    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported RoPE device");
 
 #define ROPE_CPU_CASE(DTYPE, TYPE)                                                          \
     case DTYPE:                                                                             \

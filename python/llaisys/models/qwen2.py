@@ -117,6 +117,12 @@ class Qwen2:
         output = list(inputs)
         pending = list(inputs)
         LIB_LLAISYS.llaisysQwen2ModelReset(self._model)
+        cache_capacity = len(inputs) + max_new_tokens
+        if cache_capacity > self._meta.maxseq:
+            raise ValueError(
+                f"Requested sequence length {cache_capacity} exceeds model limit {self._meta.maxseq}"
+            )
+        LIB_LLAISYS.llaisysQwen2ModelReserveCache(self._model, max(1, cache_capacity))
         for _ in range(max_new_tokens):
             token_buffer = (c_int64 * len(pending))(*pending)
             next_token = int(

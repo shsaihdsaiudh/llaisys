@@ -1,6 +1,10 @@
 #include "op.hpp"
 
 #include "../../utils.hpp"
+#include "../../core/llaisys_core.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "nvidia/swiglu_nvidia.hpp"
+#endif
 
 #include <cmath>
 
@@ -20,12 +24,19 @@ void swiglu_cpu(T *out, const T *gate, const T *up, size_t count) {
 namespace llaisys::ops {
 void swiglu(tensor_t out, tensor_t gate, tensor_t up) {
     CHECK_SAME_DEVICE(out, gate, up);
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "SwiGLU currently supports CPU tensors only");
     CHECK_SAME_DTYPE(out->dtype(), gate->dtype(), up->dtype());
     CHECK_SAME_SHAPE(out->shape(), gate->shape(), up->shape());
     CHECK_ARGUMENT(out->ndim() == 2, "SwiGLU expects 2D tensors");
     CHECK_ARGUMENT(out->isContiguous() && gate->isContiguous() && up->isContiguous(),
                    "SwiGLU tensors must be contiguous");
+
+#ifdef ENABLE_NVIDIA_API
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+        return nvidia::swiglu(out->data(), gate->data(), up->data(), out->dtype(), out->numel());
+    }
+#endif
+    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported SwiGLU device");
 
 #define SWIGLU_CPU_CASE(DTYPE, TYPE)                                    \
     case DTYPE:                                                         \

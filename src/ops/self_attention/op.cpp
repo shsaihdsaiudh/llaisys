@@ -1,6 +1,10 @@
 #include "op.hpp"
 
 #include "../../utils.hpp"
+#include "../../core/llaisys_core.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "nvidia/self_attention_nvidia.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -67,8 +71,6 @@ void self_attention_cpu(T *attn_val,
 namespace llaisys::ops {
 void self_attention(tensor_t attn_val, tensor_t q, tensor_t k, tensor_t v, float scale) {
     CHECK_SAME_DEVICE(attn_val, q, k, v);
-    CHECK_ARGUMENT(attn_val->deviceType() == LLAISYS_DEVICE_CPU,
-                   "Self attention currently supports CPU tensors only");
     CHECK_SAME_DTYPE(attn_val->dtype(), q->dtype(), k->dtype(), v->dtype());
     CHECK_ARGUMENT(attn_val->ndim() == 3 && q->ndim() == 3 && k->ndim() == 3 && v->ndim() == 3,
                    "Self attention tensors must be 3D");
@@ -87,6 +89,17 @@ void self_attention(tensor_t attn_val, tensor_t q, tensor_t k, tensor_t v, float
     CHECK_ARGUMENT(attn_val->isContiguous() && q->isContiguous() && k->isContiguous()
                        && v->isContiguous(),
                    "Self attention tensors must be contiguous");
+
+#ifdef ENABLE_NVIDIA_API
+    if (attn_val->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+        llaisys::core::context().setDevice(attn_val->deviceType(), attn_val->deviceId());
+        return nvidia::selfAttention(
+            attn_val->data(), q->data(), k->data(), v->data(), attn_val->dtype(),
+            q->shape()[0], k->shape()[0], q->shape()[1], k->shape()[1],
+            q->shape()[2], v->shape()[2], scale);
+    }
+#endif
+    CHECK_ARGUMENT(attn_val->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported self attention device");
 
 #define SELF_ATTENTION_CPU_CASE(DTYPE, TYPE)                                                       \
     case DTYPE:                                                                                    \
