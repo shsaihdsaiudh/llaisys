@@ -2,10 +2,9 @@
 
 #include "../../cuda_common.cuh"
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 constexpr unsigned int BLOCK_SIZE = 256;
-constexpr unsigned int WARP_SIZE = 32;
 constexpr unsigned long long INVALID_INDEX = ~0ULL;
 
 struct Candidate {
@@ -32,20 +31,6 @@ __device__ __forceinline__ Candidate selectBetter(Candidate current, Candidate c
     return candidate.value > current.value ? candidate : current;
 }
 
-__device__ __forceinline__ Candidate warpReduce(Candidate candidate) {
-    const unsigned int lane = threadIdx.x & (WARP_SIZE - 1);
-    constexpr unsigned int FULL_MASK = 0xffffffffu;
-    for (unsigned int offset = WARP_SIZE / 2; offset > 0; offset /= 2) {
-        Candidate other;
-        other.value = __shfl_down_sync(FULL_MASK, candidate.value, offset);
-        other.index = __shfl_down_sync(FULL_MASK, candidate.index, offset);
-        if (lane + offset < WARP_SIZE) {
-            candidate = selectBetter(candidate, other);
-        }
-    }
-    return candidate;
-}
-
 template <typename T>
 __global__ void argmaxKernel(int64_t *max_index, T *max_value, const T *values, size_t count) {
     Candidate candidate{0.0f, INVALID_INDEX};
@@ -54,25 +39,21 @@ __global__ void argmaxKernel(int64_t *max_index, T *max_value, const T *values, 
                                  Candidate{toFloat(values[i]), static_cast<unsigned long long>(i)});
     }
 
-    candidate = warpReduce(candidate);
-
-    __shared__ Candidate warp_candidates[BLOCK_SIZE / WARP_SIZE];
-    const unsigned int lane = threadIdx.x & (WARP_SIZE - 1);
-    const unsigned int warp = threadIdx.x / WARP_SIZE;
-    if (lane == 0) {
-        warp_candidates[warp] = candidate;
-    }
+    __shared__ Candidate candidates[BLOCK_SIZE];
+    candidates[threadIdx.x] = candidate;
     __syncthreads();
 
-    if (warp == 0) {
-        candidate = lane < BLOCK_SIZE / WARP_SIZE
-                      ? warp_candidates[lane]
-                      : Candidate{0.0f, INVALID_INDEX};
-        candidate = warpReduce(candidate);
-        if (lane == 0) {
-            max_index[0] = static_cast<int64_t>(candidate.index);
-            max_value[0] = values[candidate.index];
+    for (unsigned int stride = BLOCK_SIZE / 2; stride > 0; stride /= 2) {
+        if (threadIdx.x < stride) {
+            candidates[threadIdx.x] = selectBetter(
+                candidates[threadIdx.x], candidates[threadIdx.x + stride]);
         }
+        __syncthreads();
+    }
+
+    if (threadIdx.x == 0) {
+        max_index[0] = static_cast<int64_t>(candidates[0].index);
+        max_value[0] = values[candidates[0].index];
     }
 }
 
@@ -97,4 +78,4 @@ void argmax(int64_t *max_index, std::byte *max_value, const std::byte *values,
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

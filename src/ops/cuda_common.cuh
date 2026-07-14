@@ -9,7 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 inline void checkCuda(cudaError_t status, const char *operation) {
     if (status == cudaSuccess) {
         return;
@@ -52,4 +52,4 @@ template <>
 __device__ inline __nv_bfloat16 fromFloat<__nv_bfloat16>(float value) {
     return __float2bfloat16_rn(value);
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

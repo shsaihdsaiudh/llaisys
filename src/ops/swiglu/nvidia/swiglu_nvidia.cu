@@ -2,7 +2,7 @@
 
 #include "../../cuda_common.cuh"
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 template <typename T>
 __global__ void swigluKernel(T *out, const T *gate, const T *up, size_t count) {
@@ -41,4 +41,4 @@ void swiglu(std::byte *out, const std::byte *gate, const std::byte *up,
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

@@ -2,7 +2,7 @@
 
 #include "../../utils.hpp"
 #include "../../core/llaisys_core.hpp"
-#ifdef ENABLE_NVIDIA_API
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
 #include "nvidia/self_attention_nvidia.hpp"
 #endif
 
@@ -90,10 +90,11 @@ void self_attention(tensor_t attn_val, tensor_t q, tensor_t k, tensor_t v, float
                        && v->isContiguous(),
                    "Self attention tensors must be contiguous");
 
-#ifdef ENABLE_NVIDIA_API
-    if (attn_val->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
+    if (attn_val->deviceType() == LLAISYS_DEVICE_NVIDIA
+        || attn_val->deviceType() == LLAISYS_DEVICE_METAX) {
         llaisys::core::context().setDevice(attn_val->deviceType(), attn_val->deviceId());
-        return nvidia::selfAttention(
+        return cuda::selfAttention(
             attn_val->data(), q->data(), k->data(), v->data(), attn_val->dtype(),
             q->shape()[0], k->shape()[0], q->shape()[1], k->shape()[1],
             q->shape()[2], v->shape()[2], scale);

@@ -2,7 +2,7 @@
 
 #include "../../cuda_common.cuh"
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 template <typename T>
 __global__ void rmsNormKernel(T *out, const T *input, const T *weight,
@@ -56,4 +56,4 @@ void rmsNorm(std::byte *out, const std::byte *input, const std::byte *weight,
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

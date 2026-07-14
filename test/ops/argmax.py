@@ -67,11 +67,11 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"], type=str)
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia", "metax"], type=str)
     parser.add_argument("--profile", action="store_true")
     args = parser.parse_args()
     test_shapes = [(4,), (4096,)]
-    if args.device == "nvidia" or args.profile:
+    if args.device in ("nvidia", "metax") or args.profile:
         test_shapes.append((151936,))
     test_dtypes = ["f32", "f16", "bf16"]
     print(f"Testing Ops.argmax on {args.device}")
@@ -81,7 +81,7 @@ if __name__ == "__main__":
 
     for dtype_name in test_dtypes:
         test_op_argmax((257,), dtype_name, args.device, force_tie=True)
-        if args.device == "nvidia":
+        if args.device in ("nvidia", "metax"):
             test_op_argmax((257,), dtype_name, args.device, force_nan=True)
 
     print("\033[92mTest passed!\033[0m\n")

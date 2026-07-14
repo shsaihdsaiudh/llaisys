@@ -129,12 +129,14 @@ __C {
                                                int *device_ids,
                                                int ndevice) {
         CHECK_ARGUMENT(meta != nullptr, "Qwen2 metadata must not be null");
+        bool supported_device = device == LLAISYS_DEVICE_CPU;
 #ifdef ENABLE_NVIDIA_API
-        CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU || device == LLAISYS_DEVICE_NVIDIA,
-                       "Qwen2 supports CPU and NVIDIA devices only");
-#else
-        CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU, "Qwen2 was built without NVIDIA support");
+        supported_device = supported_device || device == LLAISYS_DEVICE_NVIDIA;
 #endif
+#ifdef ENABLE_METAX_API
+        supported_device = supported_device || device == LLAISYS_DEVICE_METAX;
+#endif
+        CHECK_ARGUMENT(supported_device, "Qwen2 device backend is not enabled in this build");
         CHECK_ARGUMENT(ndevice == 1 && device_ids != nullptr, "Qwen2 requires exactly one device");
         CHECK_ARGUMENT(meta->nlayer > 0 && meta->hs > 0 && meta->nh > 0 && meta->nkvh > 0,
                        "Qwen2 dimensions must be positive");

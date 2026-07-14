@@ -4,7 +4,7 @@
 #include "../../utils.hpp"
 
 #include "cpu/add_cpu.hpp"
-#ifdef ENABLE_NVIDIA_API
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
 #include "nvidia/add_nvidia.hpp"
 #endif
 
@@ -26,9 +26,14 @@ void add(tensor_t c, tensor_t a, tensor_t b) {
     switch (c->deviceType()) {
     case LLAISYS_DEVICE_CPU:
         return cpu::add(c->data(), a->data(), b->data(), c->dtype(), c->numel());
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
 #ifdef ENABLE_NVIDIA_API
     case LLAISYS_DEVICE_NVIDIA:
-        return nvidia::add(c->data(), a->data(), b->data(), c->dtype(), c->numel());
+#endif
+#ifdef ENABLE_METAX_API
+    case LLAISYS_DEVICE_METAX:
+#endif
+        return cuda::add(c->data(), a->data(), b->data(), c->dtype(), c->numel());
 #endif
     default:
         EXCEPTION_UNSUPPORTED_DEVICE;

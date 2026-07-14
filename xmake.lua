@@ -19,6 +19,31 @@ if has_config("nv-gpu") then
     includes("xmake/nvidia.lua")
 end
 
+-- MetaX --
+option("metax-gpu")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to compile implementations for MetaX GPU")
+option_end()
+
+option("use-mc")
+    set_default(true)
+    set_showmenu(true)
+    set_description("Use the MACA/MC MetaX toolchain")
+option_end()
+
+if has_config("nv-gpu") and has_config("metax-gpu") then
+    raise("NVIDIA and MetaX backends must be built separately")
+end
+
+if has_config("metax-gpu") then
+    add_defines("ENABLE_METAX_API")
+    if has_config("use-mc") then
+        add_defines("ENABLE_METAX_MC_API")
+    end
+    includes("xmake/metax.lua")
+end
+
 target("llaisys-utils")
     set_kind("static")
 
@@ -40,6 +65,9 @@ target("llaisys-device")
     add_deps("llaisys-device-cpu")
     if has_config("nv-gpu") then
         add_deps("llaisys-device-nvidia")
+    end
+    if has_config("metax-gpu") then
+        add_deps("llaisys-device-metax")
     end
 
     set_languages("cxx17")
@@ -111,6 +139,18 @@ target("llaisys")
     add_deps("llaisys-core")
     add_deps("llaisys-tensor")
     add_deps("llaisys-ops")
+    if has_config("nv-gpu") then
+        add_deps("llaisys-device-nvidia")
+        add_deps("llaisys-ops-nvidia")
+    end
+    if has_config("metax-gpu") then
+        add_deps("llaisys-device-metax")
+        add_files("src/ops/*/metax/*.maca", {rule = "llaisys.maca"})
+        local maca_root = os.getenv("MACA_PATH") or os.getenv("MACA_HOME") or os.getenv("MACA_ROOT") or "/opt/maca"
+        add_linkdirs(path.join(maca_root, "lib"))
+        add_links("runtime_cu", "mccompiler", "mcruntime", "mcblas")
+        add_rpathdirs(path.join(maca_root, "lib"))
+    end
 
     set_languages("cxx17")
     set_warnings("all", "error")

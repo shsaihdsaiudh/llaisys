@@ -2,7 +2,7 @@
 
 #include "../../cuda_common.cuh"
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 template <typename T>
 __global__ void addKernel(T *out, const T *a, const T *b, size_t count) {
@@ -37,4 +37,4 @@ void add(std::byte *out, const std::byte *a, const std::byte *b, llaisysDataType
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

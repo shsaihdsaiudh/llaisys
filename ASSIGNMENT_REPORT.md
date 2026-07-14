@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | CPU (x86_64) | Passed | Passed | Passed | Supported |
 | NVIDIA RTX 4090 | Passed | Passed | Passed | Supported |
-| Second CUDA-like platform | Pending resource access | Pending | Pending | Not yet verified |
+| MetaX C500 | Passed | Passed | Passed | Supported |
 
 ## NVIDIA environment
 
@@ -17,6 +17,17 @@
 - Xmake: 3.0.9
 - Python: 3.12.3
 - PyTorch: 2.6.0 NGC build
+
+## MetaX environment
+
+- GPU: MetaX C500, 16 GB sGPU quota, 25% compute quota
+- Driver: 3.8.30
+- MACA: 3.3.0.15
+- MXCC: 1.0.0
+- OS: Ubuntu 24.04.1 LTS
+- Xmake: 3.0.9
+- Python: 3.10.10
+- PyTorch: 2.8.0+metax3.3.0.2
 
 ## Build
 
@@ -33,6 +44,27 @@ python -m pip install -e ./python
 When building inside a root-owned container, set `XMAKE_ROOT=y` for the Xmake
 commands above.
 
+The MetaX build uses the MACA/MC toolchain and compiles the shared CUDA-like
+kernels through MXCC:
+
+```bash
+export XMAKE_ROOT=y
+export MACA_PATH=/opt/maca
+export MACA_HOME=/opt/maca
+export PATH=$HOME/.local/bin:/opt/conda/bin:/opt/maca/mxgpu_llvm/bin:$PATH
+export LD_LIBRARY_PATH=/opt/maca/lib:/opt/mxdriver/lib:$LD_LIBRARY_PATH
+
+xmake f --metax-gpu=y --use-mc=y --nv-gpu=n -m release -c
+xmake
+xmake install -y
+python -m pip install -e ./python
+```
+
+The MetaX backend has its own device enum and Runtime API. Eight zero-logic
+`.maca` entry files include the same CUDA-like kernel implementations used by
+NVIDIA, so fixes and optimizations remain shared while NVCC and MXCC compile
+platform-specific objects.
+
 ## Runtime and operator verification
 
 ```bash
@@ -48,6 +80,11 @@ python test/test_qwen2_loader.py --device nvidia
 All runtime and operator cases passed for Float32, Float16, and BFloat16. The
 Qwen2 loader/reference test passed on NVIDIA, including incremental KV-cache
 generation.
+
+The same runtime suite, all eight operator suites, and the Qwen2 loader/KV-cache
+reference suite passed on MetaX with `--device metax`. Coverage includes real
+Qwen2 decode geometry (`12` query heads, `2` KV heads, head dimension `128`),
+KV lengths `1`, `256`, and `257`, and the `151,936`-element argmax workload.
 
 ## End-to-end inference
 
@@ -94,6 +131,25 @@ Additional regression coverage includes the model's real decode geometry
 (`12` query heads, `2` KV heads, head dimension `128`) at KV lengths `1`, `256`,
 and `257`, a two-layer Qwen2 reference model, cache shrink/grow reuse, duplicate
 maxima, NaNs, and the real `151,936`-element vocabulary.
+
+## MetaX end-to-end verification
+
+```bash
+python test/test_infer.py \
+    --model /data/models/DeepSeek-R1-Distill-Qwen-1.5B \
+    --device metax \
+    --test \
+    --max_steps 128 \
+    --prompt "Who are you?"
+```
+
+On the C500 sGPU, the token sequence from the 128-step test matched Transformers exactly.
+Transformers took 2.88 seconds and LLAISYS took 0.68 seconds. Peak sGPU VRAM
+across the sequential reference and LLAISYS runs was 4,160 MiB; the allocation
+returned to 0 MiB when the process exited. A separate LLAISYS-only run peaked at
+3,814 MiB and also returned to 0 MiB. The same combined-process peak was observed
+for a 16-token safety run, confirming that model weights dominate and the
+request-sized KV cache avoids the previous fixed-context out-of-memory behavior.
 
 ## CPU regression
 

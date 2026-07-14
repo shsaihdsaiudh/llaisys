@@ -7,7 +7,7 @@
 #include <limits>
 #include <sstream>
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 void checkCublas(cublasStatus_t status, const char *operation) {
     if (status == CUBLAS_STATUS_SUCCESS) {
@@ -98,4 +98,4 @@ void linear(std::byte *out, const std::byte *input, const std::byte *weight,
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

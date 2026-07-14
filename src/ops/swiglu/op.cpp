@@ -2,7 +2,7 @@
 
 #include "../../utils.hpp"
 #include "../../core/llaisys_core.hpp"
-#ifdef ENABLE_NVIDIA_API
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
 #include "nvidia/swiglu_nvidia.hpp"
 #endif
 
@@ -30,10 +30,11 @@ void swiglu(tensor_t out, tensor_t gate, tensor_t up) {
     CHECK_ARGUMENT(out->isContiguous() && gate->isContiguous() && up->isContiguous(),
                    "SwiGLU tensors must be contiguous");
 
-#ifdef ENABLE_NVIDIA_API
-    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA
+        || out->deviceType() == LLAISYS_DEVICE_METAX) {
         llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
-        return nvidia::swiglu(out->data(), gate->data(), up->data(), out->dtype(), out->numel());
+        return cuda::swiglu(out->data(), gate->data(), up->data(), out->dtype(), out->numel());
     }
 #endif
     CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported SwiGLU device");

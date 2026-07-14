@@ -2,7 +2,7 @@
 
 #include "../../cuda_common.cuh"
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 template <typename T>
 __global__ void ropeKernel(T *out, const T *input, const int64_t *positions,
@@ -56,4 +56,4 @@ void rope(std::byte *out, const std::byte *input, const int64_t *positions,
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

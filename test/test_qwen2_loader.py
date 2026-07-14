@@ -190,13 +190,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"])
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia", "metax"])
     args = parser.parse_args()
-    device = (
-        llaisys.DeviceType.NVIDIA
-        if args.device == "nvidia"
-        else llaisys.DeviceType.CPU
-    )
+    device = {
+        "cpu": llaisys.DeviceType.CPU,
+        "nvidia": llaisys.DeviceType.NVIDIA,
+        "metax": llaisys.DeviceType.METAX,
+    }[args.device]
     test_qwen2_loader(device)
     test_qwen2_reference_generation(device)
     print("\n\033[92mTest passed!\033[0m\n")

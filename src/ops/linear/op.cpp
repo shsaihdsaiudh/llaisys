@@ -2,7 +2,7 @@
 
 #include "../../utils.hpp"
 #include "../../core/llaisys_core.hpp"
-#ifdef ENABLE_NVIDIA_API
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
 #include "nvidia/linear_nvidia.hpp"
 #endif
 
@@ -56,12 +56,13 @@ void linear(tensor_t out, tensor_t in, tensor_t weight, tensor_t bias) {
     const size_t in_features = in->shape()[1];
     const size_t out_features = weight->shape()[0];
 
-#ifdef ENABLE_NVIDIA_API
-    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA
+        || out->deviceType() == LLAISYS_DEVICE_METAX) {
         llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
-        return nvidia::linear(out->data(), in->data(), weight->data(),
-                              bias == nullptr ? nullptr : bias->data(), out->dtype(),
-                              rows, in_features, out_features);
+        return cuda::linear(out->data(), in->data(), weight->data(),
+                            bias == nullptr ? nullptr : bias->data(), out->dtype(),
+                            rows, in_features, out_features);
     }
 #endif
     CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported linear device");

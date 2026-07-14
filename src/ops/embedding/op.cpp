@@ -1,7 +1,7 @@
 #include "op.hpp"
 
 #include "../../core/llaisys_core.hpp"
-#ifdef ENABLE_NVIDIA_API
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
 #include "nvidia/embedding_nvidia.hpp"
 #endif
 
@@ -21,11 +21,12 @@ void embedding(tensor_t out, tensor_t index, tensor_t weight) {
                    "Embedding tensors must be contiguous");
 
     const auto *indices = reinterpret_cast<const int64_t *>(index->data());
-#ifdef ENABLE_NVIDIA_API
-    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA
+        || out->deviceType() == LLAISYS_DEVICE_METAX) {
         llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
-        return nvidia::embedding(out->data(), indices, weight->data(), out->dtype(),
-                                 index->numel(), weight->shape()[1]);
+        return cuda::embedding(out->data(), indices, weight->data(), out->dtype(),
+                               index->numel(), weight->shape()[1]);
     }
 #endif
     CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported embedding device");

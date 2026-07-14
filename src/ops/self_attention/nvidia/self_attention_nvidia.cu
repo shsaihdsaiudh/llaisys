@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 template <typename T>
 __device__ float attentionScore(const T *query, const T *key,
@@ -267,4 +267,4 @@ void selfAttention(std::byte *out, const std::byte *query, const std::byte *key,
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda

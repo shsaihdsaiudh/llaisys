@@ -2,7 +2,7 @@
 
 #include "../../utils.hpp"
 #include "../../core/llaisys_core.hpp"
-#ifdef ENABLE_NVIDIA_API
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
 #include "nvidia/rope_nvidia.hpp"
 #endif
 
@@ -57,12 +57,13 @@ void rope(tensor_t out, tensor_t in, tensor_t pos_ids, float theta) {
     CHECK_ARGUMENT(out->isContiguous() && in->isContiguous() && pos_ids->isContiguous(),
                    "RoPE tensors must be contiguous");
 
-#ifdef ENABLE_NVIDIA_API
-    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA) {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
+    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA
+        || out->deviceType() == LLAISYS_DEVICE_METAX) {
         llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
-        return nvidia::rope(out->data(), in->data(),
-                            reinterpret_cast<const int64_t *>(pos_ids->data()), out->dtype(),
-                            in->shape()[0], in->shape()[1], in->shape()[2], theta);
+        return cuda::rope(out->data(), in->data(),
+                          reinterpret_cast<const int64_t *>(pos_ids->data()), out->dtype(),
+                          in->shape()[0], in->shape()[1], in->shape()[2], theta);
     }
 #endif
     CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "Unsupported RoPE device");

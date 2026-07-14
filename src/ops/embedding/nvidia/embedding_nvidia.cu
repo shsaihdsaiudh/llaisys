@@ -2,7 +2,7 @@
 
 #include "../../cuda_common.cuh"
 
-namespace llaisys::ops::nvidia {
+namespace llaisys::ops::cuda {
 namespace {
 template <typename T>
 __global__ void embeddingKernel(T *out, const int64_t *indices, const T *weight,
@@ -44,4 +44,4 @@ void embedding(std::byte *out, const int64_t *indices, const std::byte *weight,
         EXCEPTION_UNSUPPORTED_DATATYPE(dtype);
     }
 }
-} // namespace llaisys::ops::nvidia
+} // namespace llaisys::ops::cuda
