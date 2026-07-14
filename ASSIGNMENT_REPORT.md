@@ -60,10 +60,16 @@ xmake install -y
 python -m pip install -e ./python
 ```
 
-The MetaX backend has its own device enum and Runtime API. Eight zero-logic
-`.maca` entry files include the same CUDA-like kernel implementations used by
-NVIDIA, so fixes and optimizations remain shared while NVCC and MXCC compile
-platform-specific objects.
+The MetaX backend has its own device enum and Runtime API. CUDA-compatible
+operator interfaces and kernels live in a vendor-neutral `src/ops/*/cuda`
+layer. Eight thin NVIDIA `.cu` and MetaX `.maca` entry files compile that same
+source through NVCC and MXCC respectively, so neither vendor backend depends on
+the other and fixes remain single-source.
+
+The thread-local execution context owns runtimes with RAII. Storage retains the
+runtime that allocated it, so a tensor can safely outlive its creator thread;
+lazy device switching also stores newly created runtimes in the context instead
+of leaking a copied runtime entry.
 
 ## Runtime and operator verification
 
@@ -151,8 +157,15 @@ returned to 0 MiB when the process exited. A separate LLAISYS-only run peaked at
 for a 16-token safety run, confirming that model weights dominate and the
 request-sized KV cache avoids the previous fixed-context out-of-memory behavior.
 
+After the vendor-neutral CUDA-layer and runtime-lifetime refactor, the complete
+MetaX build, Runtime test, eight operator suites, Qwen2 loader, and 128-step
+exact-match test were rerun from a clean directory. The reference and LLAISYS
+runs took 2.79 and 0.68 seconds in the final rerun. A monitored run raised
+system VRAM from 846,592 KiB to 5,106,624 KiB (a 4,160 MiB delta); memory
+returned to baseline after exit, and `mx-smi` reported no remaining process.
+
 ## CPU regression
 
-The tensor test, all operator tests, and the Qwen2 loader/reference test passed
-on CPU after the CUDA integration. A separate build with `--nv-gpu=n` also
-completed successfully.
+The Runtime lifetime regression, tensor test, all operator tests, and the Qwen2
+loader/reference test passed in a clean CPU-only build after the architecture
+refactor.

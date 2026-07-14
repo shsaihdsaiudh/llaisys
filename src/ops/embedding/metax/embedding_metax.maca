@@ -1,1 +1,1 @@
-#include "../nvidia/embedding_nvidia.cu"
+#include "../cuda/embedding_cuda.cuh"

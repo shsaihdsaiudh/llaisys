@@ -3,6 +3,12 @@ from .libllaisys import LIB_LLAISYS
 from ctypes import c_void_p
 
 
+def set_context_runtime(device_type: libllaisys.DeviceType, device_id: int = 0) -> None:
+    LIB_LLAISYS.llaisysSetContextRuntime(
+        libllaisys.llaisysDeviceType_t(device_type), device_id
+    )
+
+
 class RuntimeAPI:
     def __init__(self, device_type: libllaisys.DeviceType):
         self._api = LIB_LLAISYS.llaisysGetRuntimeAPI(

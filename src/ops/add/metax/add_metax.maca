@@ -1,1 +1,1 @@
-#include "../nvidia/add_nvidia.cu"
+#include "../cuda/add_cuda.cuh"

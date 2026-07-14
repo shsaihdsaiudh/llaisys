@@ -1,9 +1,10 @@
 #include "op.hpp"
 
-#include "../../utils.hpp"
 #include "../../core/llaisys_core.hpp"
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-#include "nvidia/swiglu_nvidia.hpp"
+#include "../../utils.hpp"
+#ifdef ENABLE_CUDA_COMPAT_OPS
+#include "../cuda/dispatch.hpp"
+#include "cuda/swiglu_cuda.hpp"
 #endif
 
 #include <cmath>
@@ -30,9 +31,8 @@ void swiglu(tensor_t out, tensor_t gate, tensor_t up) {
     CHECK_ARGUMENT(out->isContiguous() && gate->isContiguous() && up->isContiguous(),
                    "SwiGLU tensors must be contiguous");
 
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA
-        || out->deviceType() == LLAISYS_DEVICE_METAX) {
+#ifdef ENABLE_CUDA_COMPAT_OPS
+    if (cuda::isAvailableDevice(out->deviceType())) {
         llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
         return cuda::swiglu(out->data(), gate->data(), up->data(), out->dtype(), out->numel());
     }

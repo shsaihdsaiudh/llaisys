@@ -1,1 +1,1 @@
-#include "../nvidia/rope_nvidia.cu"
+#include "../cuda/rope_cuda.cuh"

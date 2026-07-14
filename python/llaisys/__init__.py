@@ -1,4 +1,4 @@
-from .runtime import RuntimeAPI
+from .runtime import RuntimeAPI, set_context_runtime
 from .libllaisys import DeviceType
 from .libllaisys import DataType
 from .libllaisys import MemcpyKind
@@ -10,6 +10,7 @@ from .models import *
 
 __all__ = [
     "RuntimeAPI",
+    "set_context_runtime",
     "DeviceType",
     "DataType",
     "MemcpyKind",

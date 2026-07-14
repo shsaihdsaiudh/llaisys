@@ -1,1 +1,1 @@
-#include "../nvidia/rms_norm_nvidia.cu"
+#include "../cuda/rms_norm_cuda.cuh"

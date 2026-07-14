@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../utils.hpp"
+#include "../../utils.hpp"
 
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>

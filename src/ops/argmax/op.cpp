@@ -1,9 +1,10 @@
 #include "op.hpp"
 
-#include "../../utils.hpp"
 #include "../../core/llaisys_core.hpp"
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-#include "nvidia/argmax_nvidia.hpp"
+#include "../../utils.hpp"
+#ifdef ENABLE_CUDA_COMPAT_OPS
+#include "../cuda/dispatch.hpp"
+#include "cuda/argmax_cuda.hpp"
 #endif
 
 namespace {
@@ -35,9 +36,8 @@ void argmax(tensor_t max_idx, tensor_t max_val, tensor_t vals) {
                    "Argmax tensors must be contiguous");
 
     auto *idx = reinterpret_cast<int64_t *>(max_idx->data());
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-    if (vals->deviceType() == LLAISYS_DEVICE_NVIDIA
-        || vals->deviceType() == LLAISYS_DEVICE_METAX) {
+#ifdef ENABLE_CUDA_COMPAT_OPS
+    if (cuda::isAvailableDevice(vals->deviceType())) {
         llaisys::core::context().setDevice(vals->deviceType(), vals->deviceId());
         return cuda::argmax(idx, max_val->data(), vals->data(), vals->dtype(), vals->numel());
     }

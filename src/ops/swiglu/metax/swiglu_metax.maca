@@ -1,1 +1,1 @@
-#include "../nvidia/swiglu_nvidia.cu"
+#include "../cuda/swiglu_cuda.cuh"

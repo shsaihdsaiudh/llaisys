@@ -1,8 +1,9 @@
 #include "op.hpp"
 
 #include "../../core/llaisys_core.hpp"
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-#include "nvidia/embedding_nvidia.hpp"
+#ifdef ENABLE_CUDA_COMPAT_OPS
+#include "../cuda/dispatch.hpp"
+#include "cuda/embedding_cuda.hpp"
 #endif
 
 #include <cstring>
@@ -21,9 +22,8 @@ void embedding(tensor_t out, tensor_t index, tensor_t weight) {
                    "Embedding tensors must be contiguous");
 
     const auto *indices = reinterpret_cast<const int64_t *>(index->data());
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA
-        || out->deviceType() == LLAISYS_DEVICE_METAX) {
+#ifdef ENABLE_CUDA_COMPAT_OPS
+    if (cuda::isAvailableDevice(out->deviceType())) {
         llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
         return cuda::embedding(out->data(), indices, weight->data(), out->dtype(),
                                index->numel(), weight->shape()[1]);

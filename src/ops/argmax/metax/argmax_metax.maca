@@ -1,1 +1,1 @@
-#include "../nvidia/argmax_nvidia.cu"
+#include "../cuda/argmax_cuda.cuh"

@@ -15,7 +15,7 @@ option("nv-gpu")
 option_end()
 
 if has_config("nv-gpu") then
-    add_defines("ENABLE_NVIDIA_API")
+    add_defines("ENABLE_NVIDIA_API", "ENABLE_CUDA_COMPAT_OPS")
     includes("xmake/nvidia.lua")
 end
 
@@ -37,7 +37,7 @@ if has_config("nv-gpu") and has_config("metax-gpu") then
 end
 
 if has_config("metax-gpu") then
-    add_defines("ENABLE_METAX_API")
+    add_defines("ENABLE_METAX_API", "ENABLE_CUDA_COMPAT_OPS")
     if has_config("use-mc") then
         add_defines("ENABLE_METAX_MC_API")
     end

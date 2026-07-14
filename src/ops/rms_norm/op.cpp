@@ -1,9 +1,10 @@
 #include "op.hpp"
 
-#include "../../utils.hpp"
 #include "../../core/llaisys_core.hpp"
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-#include "nvidia/rms_norm_nvidia.hpp"
+#include "../../utils.hpp"
+#ifdef ENABLE_CUDA_COMPAT_OPS
+#include "../cuda/dispatch.hpp"
+#include "cuda/rms_norm_cuda.hpp"
 #endif
 
 #include <cmath>
@@ -41,9 +42,8 @@ void rms_norm(tensor_t out, tensor_t in, tensor_t weight, float eps) {
     CHECK_ARGUMENT(out->isContiguous() && in->isContiguous() && weight->isContiguous(),
                    "RMS norm tensors must be contiguous");
 
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API)
-    if (out->deviceType() == LLAISYS_DEVICE_NVIDIA
-        || out->deviceType() == LLAISYS_DEVICE_METAX) {
+#ifdef ENABLE_CUDA_COMPAT_OPS
+    if (cuda::isAvailableDevice(out->deviceType())) {
         llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
         return cuda::rmsNorm(out->data(), in->data(), weight->data(), out->dtype(),
                              in->shape()[0], in->shape()[1], eps);

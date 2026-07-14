@@ -10,13 +10,18 @@ class Storage {
 private:
     std::byte *_memory;
     size_t _size;
-    Runtime &_runtime;
+    std::shared_ptr<Runtime> _runtime;
     bool _is_host;
-    Storage(std::byte *memory, size_t size, Runtime &runtime, bool is_host);
+    Storage(std::byte *memory, size_t size, std::shared_ptr<Runtime> runtime, bool is_host);
 
 public:
     friend class Runtime;
     ~Storage();
+
+    Storage(const Storage &) = delete;
+    Storage &operator=(const Storage &) = delete;
+    Storage(Storage &&) = delete;
+    Storage &operator=(Storage &&) = delete;
 
     std::byte *memory() const;
     size_t size() const;

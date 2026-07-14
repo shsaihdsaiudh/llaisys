@@ -1,1 +1,1 @@
-#include "../nvidia/self_attention_nvidia.cu"
+#include "../cuda/self_attention_cuda.cuh"

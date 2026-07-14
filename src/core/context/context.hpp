@@ -12,12 +12,14 @@
 namespace llaisys::core {
 class Context {
 private:
-    std::unordered_map<llaisysDeviceType_t, std::vector<Runtime *>> _runtime_map;
-    Runtime *_current_runtime;
+    using runtime_ptr = std::shared_ptr<Runtime>;
+
+    std::unordered_map<llaisysDeviceType_t, std::vector<runtime_ptr>> _runtime_map;
+    runtime_ptr _current_runtime;
     Context();
 
 public:
-    ~Context();
+    ~Context() = default;
 
     // Prevent copy
     Context(const Context &) = delete;
