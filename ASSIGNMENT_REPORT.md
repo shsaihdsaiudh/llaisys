@@ -63,13 +63,37 @@ python test/test_infer.py \
 Result:
 
 - Generated token sequence matched Transformers exactly.
-- Transformers elapsed time: 2.04 seconds.
-- LLAISYS elapsed time: 0.77 seconds.
-- Observed process peak GPU memory: 7,494 MiB.
+- Transformers elapsed time: 2.09 seconds.
+- LLAISYS elapsed time: 0.41 seconds.
+- The previously observed 7,494 MiB process peak included the Transformers run
+  in the same process and is not reported as an LLAISYS-only peak.
 
 The KV cache is reserved from `input_tokens + max_new_tokens` instead of the
 model's 131,072-token maximum context, preventing a fixed 3.5 GiB cache
 allocation for short generations.
+
+## NVIDIA optimization follow-up
+
+- Qwen2 inference reuses a model-owned workspace instead of allocating hundreds
+  of temporary GPU tensors for every generated token.
+- K/V projections write directly into their cache slices, removing two
+  synchronous device-to-device copies per layer and inference step.
+- Single-token decoding uses fused attention without a global score buffer or
+  per-layer `cudaMalloc`/`cudaFree`.
+- CUDA argmax uses a 256-thread block reduction instead of scanning the
+  151,936-element vocabulary with one thread.
+- Cache and workspace storage resize to the current request and release the old
+  allocation before growing or shrinking, avoiding retained high-water memory
+  and overlapping old/new allocations.
+
+On the same RTX 4090, model, prompt, and 128-token exact-match test, observed
+LLAISYS generation time decreased from 0.77 seconds to 0.41 seconds (46.8%).
+The final token sequence still matched Transformers exactly.
+
+Additional regression coverage includes the model's real decode geometry
+(`12` query heads, `2` KV heads, head dimension `128`) at KV lengths `1`, `256`,
+and `257`, a two-layer Qwen2 reference model, cache shrink/grow reuse, duplicate
+maxima, NaNs, and the real `151,936`-element vocabulary.
 
 ## CPU regression
 

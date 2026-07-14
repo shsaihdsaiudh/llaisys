@@ -19,6 +19,24 @@
 #include <utility>
 #include <vector>
 
+struct Qwen2Workspace {
+    size_t capacity = 0;
+    llaisys::tensor_t token_ids;
+    llaisys::tensor_t positions;
+    llaisys::tensor_t hidden;
+    llaisys::tensor_t normalized;
+    llaisys::tensor_t query;
+    llaisys::tensor_t attention;
+    llaisys::tensor_t projected;
+    llaisys::tensor_t gate;
+    llaisys::tensor_t up;
+    llaisys::tensor_t down;
+    llaisys::tensor_t logits;
+    llaisys::tensor_t max_index;
+    llaisys::tensor_t max_value;
+    std::vector<int64_t> position_values;
+};
+
 struct LlaisysQwen2Model {
     LlaisysQwen2Meta meta;
     llaisysDeviceType_t device;
@@ -28,6 +46,7 @@ struct LlaisysQwen2Model {
     std::vector<llaisys::tensor_t> value_cache;
     size_t cache_length = 0;
     size_t cache_capacity = 0;
+    Qwen2Workspace workspace;
 };
 
 namespace {
@@ -58,6 +77,49 @@ void destroy_layer_array(llaisysTensor_t *tensors, size_t layers) {
 
 llaisys::tensor_t tensor(llaisysTensor_t handle) {
     return handle->tensor;
+}
+
+Qwen2Workspace make_workspace(const LlaisysQwen2Model &model, size_t capacity) {
+    const auto &meta = model.meta;
+    Qwen2Workspace workspace;
+    workspace.capacity = capacity;
+    workspace.token_ids = llaisys::Tensor::create(
+        {capacity}, LLAISYS_DTYPE_I64, model.device, model.device_id);
+    workspace.positions = llaisys::Tensor::create(
+        {capacity}, LLAISYS_DTYPE_I64, model.device, model.device_id);
+    workspace.hidden = llaisys::Tensor::create(
+        {capacity, meta.hs}, meta.dtype, model.device, model.device_id);
+    workspace.normalized = llaisys::Tensor::create(
+        {capacity, meta.hs}, meta.dtype, model.device, model.device_id);
+    workspace.query = llaisys::Tensor::create(
+        {capacity, meta.nh * meta.dh}, meta.dtype, model.device, model.device_id);
+    workspace.attention = llaisys::Tensor::create(
+        {capacity, meta.nh, meta.dh}, meta.dtype, model.device, model.device_id);
+    workspace.projected = llaisys::Tensor::create(
+        {capacity, meta.hs}, meta.dtype, model.device, model.device_id);
+    workspace.gate = llaisys::Tensor::create(
+        {capacity, meta.di}, meta.dtype, model.device, model.device_id);
+    workspace.up = llaisys::Tensor::create(
+        {capacity, meta.di}, meta.dtype, model.device, model.device_id);
+    workspace.down = llaisys::Tensor::create(
+        {capacity, meta.hs}, meta.dtype, model.device, model.device_id);
+    workspace.logits = llaisys::Tensor::create(
+        {1, meta.voc}, meta.dtype, model.device, model.device_id);
+    workspace.max_index = llaisys::Tensor::create(
+        {1}, LLAISYS_DTYPE_I64, model.device, model.device_id);
+    workspace.max_value = llaisys::Tensor::create(
+        {1}, meta.dtype, model.device, model.device_id);
+    workspace.position_values.resize(capacity);
+    return workspace;
+}
+
+void ensure_workspace(LlaisysQwen2Model *model, size_t capacity) {
+    if (capacity == model->workspace.capacity) {
+        return;
+    }
+    llaisys::core::context().setDevice(model->device, model->device_id);
+    model->workspace = {};
+    model->workspace = make_workspace(*model, capacity);
 }
 } // namespace
 
@@ -156,23 +218,32 @@ __C {
         CHECK_ARGUMENT(model != nullptr, "Qwen2 model must not be null");
         CHECK_ARGUMENT(capacity > 0 && capacity <= model->meta.maxseq,
                        "Qwen2 cache capacity is outside the configured sequence range");
-        if (capacity <= model->cache_capacity) {
+        if (capacity == model->cache_capacity
+            && model->key_cache.size() == model->meta.nlayer
+            && model->value_cache.size() == model->meta.nlayer) {
             return;
         }
-        CHECK_ARGUMENT(model->cache_length == 0, "Qwen2 cache can only grow after reset");
+        CHECK_ARGUMENT(model->cache_length == 0, "Qwen2 cache can only be resized after reset");
 
+        llaisys::core::context().setDevice(model->device, model->device_id);
         model->key_cache.clear();
         model->value_cache.clear();
-        model->key_cache.reserve(model->meta.nlayer);
-        model->value_cache.reserve(model->meta.nlayer);
+        model->cache_capacity = 0;
+
+        std::vector<llaisys::tensor_t> key_cache;
+        std::vector<llaisys::tensor_t> value_cache;
+        key_cache.reserve(model->meta.nlayer);
+        value_cache.reserve(model->meta.nlayer);
         for (size_t layer = 0; layer < model->meta.nlayer; ++layer) {
-            model->key_cache.push_back(llaisys::Tensor::create(
+            key_cache.push_back(llaisys::Tensor::create(
                 {capacity, model->meta.nkvh, model->meta.dh}, model->meta.dtype,
                 model->device, model->device_id));
-            model->value_cache.push_back(llaisys::Tensor::create(
+            value_cache.push_back(llaisys::Tensor::create(
                 {capacity, model->meta.nkvh, model->meta.dh}, model->meta.dtype,
                 model->device, model->device_id));
         }
+        model->key_cache.swap(key_cache);
+        model->value_cache.swap(value_cache);
         model->cache_capacity = capacity;
     }
 
@@ -190,82 +261,70 @@ __C {
 
         const auto &meta = model->meta;
         auto &weights = model->weights;
-        auto tokens = llaisys::Tensor::create({ntoken}, LLAISYS_DTYPE_I64, model->device, model->device_id);
+        ensure_workspace(model, ntoken);
+        auto &workspace = model->workspace;
+        auto tokens = workspace.token_ids->slice(0, 0, ntoken);
+        auto positions = workspace.positions->slice(0, 0, ntoken);
+        auto hidden = workspace.hidden->slice(0, 0, ntoken);
+        auto normalized = workspace.normalized->slice(0, 0, ntoken);
+        auto query_2d = workspace.query->slice(0, 0, ntoken);
+        auto attention = workspace.attention->slice(0, 0, ntoken);
+        auto projected = workspace.projected->slice(0, 0, ntoken);
+        auto gate = workspace.gate->slice(0, 0, ntoken);
+        auto up = workspace.up->slice(0, 0, ntoken);
+        auto down = workspace.down->slice(0, 0, ntoken);
+
         tokens->load(token_ids);
-        auto hidden = llaisys::Tensor::create({ntoken, meta.hs}, meta.dtype, model->device, model->device_id);
         llaisys::ops::embedding(hidden, tokens, tensor(weights.in_embed));
 
-        std::vector<int64_t> position_values(ntoken);
         for (size_t i = 0; i < ntoken; ++i) {
-            position_values[i] = static_cast<int64_t>(model->cache_length + i);
+            workspace.position_values[i] = static_cast<int64_t>(model->cache_length + i);
         }
-        auto positions = llaisys::Tensor::create({ntoken}, LLAISYS_DTYPE_I64, model->device, model->device_id);
-        positions->load(position_values.data());
+        positions->load(workspace.position_values.data());
 
         const size_t total_length = model->cache_length + ntoken;
         const size_t kv_width = meta.nkvh * meta.dh;
-        const size_t element_size = llaisys::utils::dsize(meta.dtype);
-        const size_t cache_copy_bytes = ntoken * kv_width * element_size;
 
         for (size_t layer = 0; layer < meta.nlayer; ++layer) {
-            auto normalized = llaisys::Tensor::create({ntoken, meta.hs}, meta.dtype, model->device, model->device_id);
             llaisys::ops::rms_norm(normalized, hidden, tensor(weights.attn_norm_w[layer]), meta.epsilon);
 
-            auto query = llaisys::Tensor::create({ntoken, meta.nh * meta.dh}, meta.dtype, model->device, model->device_id);
-            auto key = llaisys::Tensor::create({ntoken, kv_width}, meta.dtype, model->device, model->device_id);
-            auto value = llaisys::Tensor::create({ntoken, kv_width}, meta.dtype, model->device, model->device_id);
-            llaisys::ops::linear(query, normalized, tensor(weights.attn_q_w[layer]), tensor(weights.attn_q_b[layer]));
-            llaisys::ops::linear(key, normalized, tensor(weights.attn_k_w[layer]), tensor(weights.attn_k_b[layer]));
-            llaisys::ops::linear(value, normalized, tensor(weights.attn_v_w[layer]), tensor(weights.attn_v_b[layer]));
+            auto cached_keys = model->key_cache[layer]->slice(0, 0, total_length);
+            auto cached_values = model->value_cache[layer]->slice(0, 0, total_length);
+            auto key = cached_keys->slice(0, model->cache_length, total_length);
+            auto value = cached_values->slice(0, model->cache_length, total_length);
+            llaisys::ops::linear(query_2d, normalized,
+                                tensor(weights.attn_q_w[layer]), tensor(weights.attn_q_b[layer]));
+            llaisys::ops::linear(key->view({ntoken, kv_width}), normalized,
+                                tensor(weights.attn_k_w[layer]), tensor(weights.attn_k_b[layer]));
+            llaisys::ops::linear(value->view({ntoken, kv_width}), normalized,
+                                tensor(weights.attn_v_w[layer]), tensor(weights.attn_v_b[layer]));
 
-            query = query->view({ntoken, meta.nh, meta.dh});
-            key = key->view({ntoken, meta.nkvh, meta.dh});
-            value = value->view({ntoken, meta.nkvh, meta.dh});
+            auto query = query_2d->view({ntoken, meta.nh, meta.dh});
             llaisys::ops::rope(query, query, positions, meta.theta);
             llaisys::ops::rope(key, key, positions, meta.theta);
 
-            const size_t cache_offset = model->cache_length * kv_width * element_size;
-            llaisys::core::context().setDevice(model->device, model->device_id);
-            auto *runtime_api = llaisys::core::context().runtime().api();
-            const auto copy_kind = model->device == LLAISYS_DEVICE_CPU
-                                     ? LLAISYS_MEMCPY_H2H
-                                     : LLAISYS_MEMCPY_D2D;
-            runtime_api->memcpy_sync(model->key_cache[layer]->data() + cache_offset,
-                                     key->data(), cache_copy_bytes, copy_kind);
-            runtime_api->memcpy_sync(model->value_cache[layer]->data() + cache_offset,
-                                     value->data(), cache_copy_bytes, copy_kind);
-            auto cached_keys = model->key_cache[layer]->slice(0, 0, total_length);
-            auto cached_values = model->value_cache[layer]->slice(0, 0, total_length);
-
-            auto attention = llaisys::Tensor::create(
-                {ntoken, meta.nh, meta.dh}, meta.dtype, model->device, model->device_id);
             llaisys::ops::self_attention(
                 attention, query, cached_keys, cached_values, 1.0F / std::sqrt(static_cast<float>(meta.dh)));
-            auto projected = llaisys::Tensor::create({ntoken, meta.hs}, meta.dtype, model->device, model->device_id);
             llaisys::ops::linear(
                 projected, attention->view({ntoken, meta.hs}), tensor(weights.attn_o_w[layer]), nullptr);
             llaisys::ops::add(hidden, hidden, projected);
 
-            normalized = llaisys::Tensor::create({ntoken, meta.hs}, meta.dtype, model->device, model->device_id);
             llaisys::ops::rms_norm(normalized, hidden, tensor(weights.mlp_norm_w[layer]), meta.epsilon);
-            auto gate = llaisys::Tensor::create({ntoken, meta.di}, meta.dtype, model->device, model->device_id);
-            auto up = llaisys::Tensor::create({ntoken, meta.di}, meta.dtype, model->device, model->device_id);
             llaisys::ops::linear(gate, normalized, tensor(weights.mlp_gate_w[layer]), nullptr);
             llaisys::ops::linear(up, normalized, tensor(weights.mlp_up_w[layer]), nullptr);
             llaisys::ops::swiglu(gate, gate, up);
-            auto down = llaisys::Tensor::create({ntoken, meta.hs}, meta.dtype, model->device, model->device_id);
             llaisys::ops::linear(down, gate, tensor(weights.mlp_down_w[layer]), nullptr);
             llaisys::ops::add(hidden, hidden, down);
         }
 
         model->cache_length = total_length;
         auto last_hidden = hidden->slice(0, ntoken - 1, ntoken);
-        auto normalized = llaisys::Tensor::create({1, meta.hs}, meta.dtype, model->device, model->device_id);
-        llaisys::ops::rms_norm(normalized, last_hidden, tensor(weights.out_norm_w), meta.epsilon);
-        auto logits = llaisys::Tensor::create({1, meta.voc}, meta.dtype, model->device, model->device_id);
-        llaisys::ops::linear(logits, normalized, tensor(weights.out_embed), nullptr);
-        auto max_index = llaisys::Tensor::create({1}, LLAISYS_DTYPE_I64, model->device, model->device_id);
-        auto max_value = llaisys::Tensor::create({1}, meta.dtype, model->device, model->device_id);
+        auto output_normalized = normalized->slice(0, 0, 1);
+        llaisys::ops::rms_norm(output_normalized, last_hidden, tensor(weights.out_norm_w), meta.epsilon);
+        auto logits = workspace.logits;
+        llaisys::ops::linear(logits, output_normalized, tensor(weights.out_embed), nullptr);
+        auto max_index = workspace.max_index;
+        auto max_value = workspace.max_value;
         llaisys::ops::argmax(max_index, max_value, logits->view({meta.voc}));
         int64_t result = 0;
         if (model->device == LLAISYS_DEVICE_CPU) {

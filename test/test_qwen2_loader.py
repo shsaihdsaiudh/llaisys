@@ -33,50 +33,53 @@ def reference_next_token(token_ids, weights, config):
             dim=-1,
         )
 
-    prefix = "model.layers.0."
-    residual = hidden
-    normalized = rms_norm(hidden, tensors[prefix + "input_layernorm.weight"])
-    query = F.linear(
-        normalized,
-        tensors[prefix + "self_attn.q_proj.weight"],
-        tensors[prefix + "self_attn.q_proj.bias"],
-    ).view(len(token_ids), config["num_attention_heads"], head_dim)
-    key = F.linear(
-        normalized,
-        tensors[prefix + "self_attn.k_proj.weight"],
-        tensors[prefix + "self_attn.k_proj.bias"],
-    ).view(len(token_ids), config["num_key_value_heads"], head_dim)
-    value = F.linear(
-        normalized,
-        tensors[prefix + "self_attn.v_proj.weight"],
-        tensors[prefix + "self_attn.v_proj.bias"],
-    ).view(len(token_ids), config["num_key_value_heads"], head_dim)
-    query, key = rope(query), rope(key)
+    for layer in range(config["num_hidden_layers"]):
+        prefix = f"model.layers.{layer}."
+        residual = hidden
+        normalized = rms_norm(hidden, tensors[prefix + "input_layernorm.weight"])
+        query = F.linear(
+            normalized,
+            tensors[prefix + "self_attn.q_proj.weight"],
+            tensors[prefix + "self_attn.q_proj.bias"],
+        ).view(len(token_ids), config["num_attention_heads"], head_dim)
+        key = F.linear(
+            normalized,
+            tensors[prefix + "self_attn.k_proj.weight"],
+            tensors[prefix + "self_attn.k_proj.bias"],
+        ).view(len(token_ids), config["num_key_value_heads"], head_dim)
+        value = F.linear(
+            normalized,
+            tensors[prefix + "self_attn.v_proj.weight"],
+            tensors[prefix + "self_attn.v_proj.bias"],
+        ).view(len(token_ids), config["num_key_value_heads"], head_dim)
+        query, key = rope(query), rope(key)
 
-    query = query.transpose(0, 1)
-    key = key.transpose(0, 1).repeat_interleave(
-        config["num_attention_heads"] // config["num_key_value_heads"], dim=0
-    )
-    value = value.transpose(0, 1).repeat_interleave(
-        config["num_attention_heads"] // config["num_key_value_heads"], dim=0
-    )
-    scores = query @ key.transpose(-2, -1) / (head_dim**0.5)
-    mask = torch.ones(len(token_ids), len(token_ids), dtype=torch.bool).tril()
-    scores.masked_fill_(~mask, float("-inf"))
-    attention = (scores.softmax(dim=-1) @ value).transpose(0, 1).reshape(
-        len(token_ids), config["hidden_size"]
-    )
-    hidden = residual + F.linear(attention, tensors[prefix + "self_attn.o_proj.weight"])
+        query = query.transpose(0, 1)
+        key = key.transpose(0, 1).repeat_interleave(
+            config["num_attention_heads"] // config["num_key_value_heads"], dim=0
+        )
+        value = value.transpose(0, 1).repeat_interleave(
+            config["num_attention_heads"] // config["num_key_value_heads"], dim=0
+        )
+        scores = query @ key.transpose(-2, -1) / (head_dim**0.5)
+        mask = torch.ones(len(token_ids), len(token_ids), dtype=torch.bool).tril()
+        scores.masked_fill_(~mask, float("-inf"))
+        attention = (scores.softmax(dim=-1) @ value).transpose(0, 1).reshape(
+            len(token_ids), config["hidden_size"]
+        )
+        hidden = residual + F.linear(
+            attention, tensors[prefix + "self_attn.o_proj.weight"]
+        )
 
-    residual = hidden
-    normalized = rms_norm(
-        hidden, tensors[prefix + "post_attention_layernorm.weight"]
-    )
-    gate = F.linear(normalized, tensors[prefix + "mlp.gate_proj.weight"])
-    up = F.linear(normalized, tensors[prefix + "mlp.up_proj.weight"])
-    hidden = residual + F.linear(
-        F.silu(gate) * up, tensors[prefix + "mlp.down_proj.weight"]
-    )
+        residual = hidden
+        normalized = rms_norm(
+            hidden, tensors[prefix + "post_attention_layernorm.weight"]
+        )
+        gate = F.linear(normalized, tensors[prefix + "mlp.gate_proj.weight"])
+        up = F.linear(normalized, tensors[prefix + "mlp.up_proj.weight"])
+        hidden = residual + F.linear(
+            F.silu(gate) * up, tensors[prefix + "mlp.down_proj.weight"]
+        )
     hidden = rms_norm(hidden[-1:], tensors["model.norm.weight"])
     logits = F.linear(hidden, tensors["lm_head.weight"])
     return int(logits.argmax(dim=-1).item())
@@ -127,7 +130,7 @@ def test_qwen2_loader(device=llaisys.DeviceType.CPU):
 def test_qwen2_reference_generation(device=llaisys.DeviceType.CPU):
     config = {
         "torch_dtype": "float32",
-        "num_hidden_layers": 1,
+        "num_hidden_layers": 2,
         "hidden_size": 4,
         "num_attention_heads": 2,
         "num_key_value_heads": 1,
@@ -147,20 +150,26 @@ def test_qwen2_reference_generation(device=llaisys.DeviceType.CPU):
         "model.embed_tokens.weight": random((10, 4)),
         "lm_head.weight": random((10, 4)),
         "model.norm.weight": 1.0 + random((4,), 0.05),
-        "model.layers.0.input_layernorm.weight": 1.0 + random((4,), 0.05),
-        "model.layers.0.self_attn.q_proj.weight": random((4, 4)),
-        "model.layers.0.self_attn.q_proj.bias": random((4,)),
-        "model.layers.0.self_attn.k_proj.weight": random((2, 4)),
-        "model.layers.0.self_attn.k_proj.bias": random((2,)),
-        "model.layers.0.self_attn.v_proj.weight": random((2, 4)),
-        "model.layers.0.self_attn.v_proj.bias": random((2,)),
-        "model.layers.0.self_attn.o_proj.weight": random((4, 4)),
-        "model.layers.0.post_attention_layernorm.weight": 1.0
-        + random((4,), 0.05),
-        "model.layers.0.mlp.gate_proj.weight": random((8, 4)),
-        "model.layers.0.mlp.up_proj.weight": random((8, 4)),
-        "model.layers.0.mlp.down_proj.weight": random((4, 8)),
     }
+    for layer in range(config["num_hidden_layers"]):
+        prefix = f"model.layers.{layer}."
+        weights.update(
+            {
+                prefix + "input_layernorm.weight": 1.0 + random((4,), 0.05),
+                prefix + "self_attn.q_proj.weight": random((4, 4)),
+                prefix + "self_attn.q_proj.bias": random((4,)),
+                prefix + "self_attn.k_proj.weight": random((2, 4)),
+                prefix + "self_attn.k_proj.bias": random((2,)),
+                prefix + "self_attn.v_proj.weight": random((2, 4)),
+                prefix + "self_attn.v_proj.bias": random((2,)),
+                prefix + "self_attn.o_proj.weight": random((4, 4)),
+                prefix + "post_attention_layernorm.weight": 1.0
+                + random((4,), 0.05),
+                prefix + "mlp.gate_proj.weight": random((8, 4)),
+                prefix + "mlp.up_proj.weight": random((8, 4)),
+                prefix + "mlp.down_proj.weight": random((4, 8)),
+            }
+        )
     expected = [1, 2]
     for _ in range(2):
         expected.append(reference_next_token(expected, weights, config))
@@ -170,6 +179,8 @@ def test_qwen2_reference_generation(device=llaisys.DeviceType.CPU):
         (model_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
         save_file(weights, model_path / "model.safetensors")
         model = llaisys.models.Qwen2(model_path, device)
+        assert model.generate([1, 2], max_new_tokens=2, top_k=1) == expected
+        assert model.generate([1, 2], max_new_tokens=1, top_k=1) == expected[:3]
         assert model.generate([1, 2], max_new_tokens=2, top_k=1) == expected
         del model
         gc.collect()
